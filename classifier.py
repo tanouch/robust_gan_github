@@ -66,14 +66,17 @@ class Classifier(ABC):
 
 class MlpBinaryClassifier(Classifier):
     ''' MLP Binary Classifier '''
-    def __init__(self, input_dim, depth, width, facq, lr, beta, name='bcmlp'):
+    def __init__(self, input_dim, depth, width, facq, lr, l2_param, gp_param, name='bcmlp'):
         self.depth = depth
         self.width = width
         self.facq = facq
         self.name = name
-        self.beta = beta
+        self.l2_param = l2_param
+        self.gp_param = gp_param
         self.epsilons = np.logspace(-1, 0.5, 20)
         super().__init__(input_dim, 2, lr)
+
+    
 
     def _predict(self, x):
         with tf.name_scope('layers'):
@@ -81,9 +84,9 @@ class MlpBinaryClassifier(Classifier):
             for _ in range(1, self.depth-1):
                 net = slim.fully_connected(net, self.width,
                                             activation_fn=self.facq,
-                                            weights_regularizer=slim.l2_regularizer(self.beta))
+                                            weights_regularizer=slim.l2_regularizer(self.l2_param))
             net = slim.fully_connected(net, 1, activation_fn=None,
-                                        weights_regularizer=slim.l2_regularizer(self.beta))
+                                        weights_regularizer=slim.l2_regularizer(self.l2_param))
             return net
 
     def _build(self):
@@ -102,10 +105,8 @@ class MlpBinaryClassifier(Classifier):
         with tf.name_scope('ops'):
             cross_entropy = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.t,
                                                                     logits=self.y)
-            #self.weights = tf.stack(tf.get_collection("layers"))
-            #self.regularizer = tf.cast(tf.nn.l2_loss(self.weights), tf.float64)
-            self.loss = tf.reduce_mean(cross_entropy) 
-            #self.loss = tf.reduce_mean(self.ce_loss + self.beta*self.regularizer)
+            self.loss = tf.reduce_mean(cross_entropy)
+            self.add_gradient_penalty()
             self.optimizer = tf.train.AdamOptimizer(self.lr)
             self.fit = self.optimizer.minimize(self.loss)
             self.pred_labels = tf.round(tf.nn.sigmoid(self.y))
@@ -113,6 +114,13 @@ class MlpBinaryClassifier(Classifier):
                                                     tf.float64))
             self.gradients = tf.gradients(self.loss, self.x)[0]
             self.sign_gradients = tf.sign(self.gradients)
+
+    def add_gradient_penalty(self):
+        if (self.gp_param>0.0):
+            self.GPgradients = tf.gradients(self.y, [self.x])[0]
+            self.slopes = tf.sqrt(tf.reduce_sum(tf.square(self.GPgradients), reduction_indices=[1]))
+            self.gradient_penalty = tf.reduce_mean((self.slopes - 1.) ** 2)
+            self.loss += self.gp_param * self.gradient_penalty
 
     
     def _train(self, session, X, Y, distribution, iters):

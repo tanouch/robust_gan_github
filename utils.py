@@ -11,14 +11,14 @@ import matplotlib.pyplot as plt
 
 
 def plot_graph(path, ax, scatter, distribution, list_of_f, i):
-    colors = ['g', 'b', 'k']
+    colors = ['g', 'b', 'c', 'k']
     h_list = list()
     for k, f in enumerate(list_of_f):
         cs, h = mesh_vizu(ax, f, colors[k], 
                         xlim=[np.min(distribution.Xtrain[:, 0]), np.max(distribution.Xtrain[:, 0])],
                         ylim=[np.min(distribution.Xtrain[:, 1]), np.max(distribution.Xtrain[:, 1])])
         h_list.append(h[0])
-    ax.legend(h_list, ['Base classifier', 'Regularized Classifier', 'Robust classifier'])
+    ax.legend(h_list, ['Base Classifier', 'L2Reg Classifier', 'GP Classifier', 'Robust Classifier'])
     plt.savefig(path+'fig_'+str(i))
     scatter.remove()
     for coll in cs.collections:

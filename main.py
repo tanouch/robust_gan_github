@@ -47,7 +47,7 @@ def main(args):
                                                dim=dim)
     distribution.create_dataset(data_size)
 
-    fig = plt.figure(figsize=(20,10))
+    fig = plt.figure(figsize=(25,13))
     ax = plt.subplot(1,1,1)
     ax.scatter(distribution.Xtrain[:, 0],
                distribution.Xtrain[:, 1],
@@ -76,30 +76,20 @@ def main(args):
         # ---------------
         # create classifier
         # ---------------
-        mlp = MlpBinaryClassifier(input_dim=dim,
-                                  depth=args['classif_depth'],
-                                  width=args['classif_width'],
-                                  facq=tf.nn.tanh,
-                                  lr=args['classif_lr'],
-                                  beta=0.0,
-                                  name='rcmlp')
-
-        reg_mlp = MlpBinaryClassifier(input_dim=dim,
-                                  depth=args['classif_depth'],
-                                  width=args['classif_width'],
-                                  facq=tf.nn.tanh,
-                                  lr=args['classif_lr'],
-                                  beta=1.,
-                                  name='bcmlp')
-
-        base_mlp = MlpBinaryClassifier(input_dim=dim,
-                                  depth=args['classif_depth'],
-                                  width=args['classif_width'],
-                                  facq=tf.nn.tanh,
-                                  lr=args['classif_lr'],
-                                  beta=0.,
-                                  name='bcmlp')
-        # ---------------
+        def init_classic_mlp(l2_param, gp_param):
+            return MlpBinaryClassifier(input_dim=dim,
+                        depth=args['classif_depth'],
+                        width=args['classif_width'],
+                        facq=tf.nn.tanh,
+                        lr=args['classif_lr'],
+                        l2_param=l2_param,
+                        gp_param=gp_param,
+                        name='rcmlp')
+        mlp = init_classic_mlp(l2_param=0., gp_param=0.)
+        base_mlp = init_classic_mlp(l2_param=0., gp_param=0.)
+        l2_mlp = init_classic_mlp(l2_param=1., gp_param=0.0)
+        gp_mlp = init_classic_mlp(l2_param=0., gp_param=0.2)
+        
         # init
         # ---------------
         session.run(tf.global_variables_initializer())
@@ -114,17 +104,18 @@ def main(args):
                           X=distribution.Xtrain,
                           iters=1000)
 
-        print('Train both classifiers under real distribution')
-        base_mlp_eps_accs = base_mlp._train(session=session,
+        def train_classic_mlp(mlp):
+            mlp._train(session=session,
                       X=distribution.Xtrain,
                       Y=distribution.Ytrain,
                       distribution=distribution,
                       iters=30000)
-        reg_mlp_eps_accs = reg_mlp._train(session=session,
-                      X=distribution.Xtrain,
-                      Y=distribution.Ytrain,
-                      distribution=distribution,
-                      iters=30000)
+        print("Train baseline")
+        train_classic_mlp(base_mlp)
+        print("Train with l2 reg")
+        train_classic_mlp(l2_mlp)
+        print("Train with gradient penalty")
+        train_classic_mlp(gp_mlp)
         print("")
 
         # decision function
@@ -134,6 +125,7 @@ def main(args):
                 feed_dict = {cl.x: x}
                 return session.run(cl.y, feed_dict)
             return f
+        base_f, l2_f, gp_f = f_cl(base_mlp), f_cl(l2_mlp), f_cl(gp_mlp)
 
         # Optimization
         # ---------------
@@ -155,8 +147,8 @@ def main(args):
                       iters=2500)
             robust_mlp_eps_acc.append(accs)
 
-            base_f, reg_f, robust_f = f_cl(base_mlp), f_cl(reg_mlp), f_cl(mlp)
-            ut.plot_graph(path, ax, scatter, distribution, [base_f, reg_f, robust_f], i)
+            robust_f = f_cl(mlp)
+            ut.plot_graph(path, ax, scatter, distribution, [base_f, l2_f, gp_f, robust_f], i)
             
             # adversarial training of the invnet
             print("Train invnet..")
@@ -169,8 +161,8 @@ def main(args):
                             iters=10)
             print("")
 
-        ut.plot_eps_acc(path, mlp.epsilons, base_mlp_eps_accs, accs, i)                
-        ut.plot_eps_acc_final(path, mlp.epsilons, base_mlp_eps_accs, np.array(robust_mlp_eps_acc))
+        #ut.plot_eps_acc(path, mlp.epsilons, base_mlp_eps_accs, accs, i)                
+        #ut.plot_eps_acc_final(path, mlp.epsilons, base_mlp_eps_accs, np.array(robust_mlp_eps_acc))
         # ---------------
 
 def train_invnet_llog(session, invnet, llog_optimizer, X, iters):
@@ -264,4 +256,4 @@ if __name__ == '__main__':
 
     args = vars(parser.parse_args())
     pp.pprint(args)
-    main()
+    main(args)
